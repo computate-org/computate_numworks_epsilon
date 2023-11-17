@@ -1,0 +1,56 @@
+---
+#- include_role:
+#    name: computate.computate_osg
+- name: "Install dependencies as root: {{ APP_DEPENDENCIES | join(' ') }}"
+  package:
+    name: "{{ APP_DEPENDENCIES }}"
+  become: true
+  register: INSTALL_DEPENDENCIES
+  ignore_errors: true
+- name: "Install dependencies as user {{ APP_USER }}: {{ APP_DEPENDENCIES | join(' ') }}"
+  shell: "pkcon install -y {{ item }} | true"
+  loop: "{{ APP_DEPENDENCIES }}"
+  when: INSTALL_DEPENDENCIES.failed
+- name: "Install python3 pip dependencies"
+  shell:
+    cmd: "pip3 install {{ APP_DEPENDENCIES_PYTHON | join(' ') }}"
+- name: "Create the directory {{ APP_SRC }}"
+  file:
+    name: "{{ APP_SRC }}"
+    state: directory
+    owner: "{{ APP_USER }}"
+  become: "{{ APP_ROOT }}"
+- name: "Check for the README file {{ APP_README }}"
+  stat:
+    path: "{{ APP_README }}"
+  register: APP_README_PATH
+- name: "Clone the {{ APP_REPO_SSH }} source code into {{ APP_SRC }}"
+  ansible.builtin.git:
+    repo: "{{ APP_REPO_SSH }}"
+    dest: "{{ APP_SRC }}"
+    version: "{{ APP_TAG }}"
+    recursive: false
+  ignore_errors: true
+  when: not APP_README_PATH.stat.exists
+  register: CLONE_REPO
+- name: "Clone the {{ APP_REPO_HTTPS }} source code into {{ APP_SRC }}"
+  ansible.builtin.git:
+    repo: "{{ APP_REPO_HTTPS }}"
+    dest: "{{ APP_SRC }}"
+    version: "{{ APP_TAG }}"
+    recursive: false
+  when: not APP_README_PATH.stat.exists and CLONE_REPO.failed
+- name: "Create the directory {{ APP_SRC }}/cmake_build"
+  file:
+    name: "{{ APP_SRC }}"
+    state: directory
+- name: "Run make -j $(nproc) PLATFORM=simulator clean"
+  shell:
+    cmd: make -j $(nproc) PLATFORM=simulator clean
+    chdir: "{{ APP_SRC }}"
+- name: "Run make -j PLATFORM=simulator $(nproc) epsilon_run"
+  shell:
+    cmd: make -j $(nproc) PLATFORM=simulator epsilon_run
+    chdir: "{{ APP_SRC }}"
+  become: "{{ APP_ROOT }}"
+
